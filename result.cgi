@@ -35,7 +35,6 @@ substr($search_time,8,2,"");
 substr($search_time,3,0,", $day");
 substr($search_time,12,0,"$year");
 
-#my ($second, $minute, $hour, $mday, $month, $year) = localtime(time-7200);	#２時間前
 my %relate=();	#関連語
 my %user_count=();	#とりあえず量的ポイントのランキングをハッシュにて
 my %tweet_point = ();	#各ツイートのポイント ポジネガ判定に用いる
@@ -43,7 +42,6 @@ my %tweet_user = ();
 my %row_relate = ();
 my %tweet_text = ();
 my %image_url = ();
-#my %tweet_text = ();	#ツイートのテキスト自体
 my %user_retweet = ();	#各ユーザがリツイートされた数
 my %user_sum = ();	#userのsum値
 my %retweet_id = ();	#リツイートとしてカウントしたツイートのID
@@ -53,17 +51,6 @@ my @relate_dic;	#関連語辞書
 my %hashtag;
 my $in_number = 0; #検索語の出現回数
 my $start_time = Time::HiRes::time; 
-
-=pod
-$" = "|";
-my $nt = Net::Twitter->new(
-    traits              => [qw/API::RESTv1_1 API::Search OAuth/],
-    consumer_key        => $config->{'consumer_key'},
-    consumer_secret     => $config->{'consumer_secret'},
-    access_token        => $config->{'token'},       
-    access_token_secret => $config->{'token_secret'},
-);
-=cut
 
 $" = "|";
 my $nt = Net::Twitter::Lite::WithAPIv1_1->new(
@@ -108,39 +95,16 @@ for(my $i=1;$i<11;$i++){
 	
 	STEP: for my $res (@{$r->{statuses}}) {
 		$max_id = $res->{id_str};
-		#print Dumper($res);
-		#print "<br><br>";
 		next if ($res->{text} =~ /\A@/s || exists($tweet_point{$res->{id}}));	#リプライと既出ツイートは削除
-		
-		#next if ($res->{text} =~ /http/s);	#URLを含み、それが画像でなければ(bot除去)
-			
-		#リツイートカウント
-=pod
-		if($res->{text} =~ /\ART.*?\@(.*?)( |:)/){			
-			next if(exists($retweet_id{$res->{id}}));
-			if(exists($user_retweet{$1})){
-				$user_retweet{$1}++;
-			}
-			else{
-				$user_retweet{$1} = 1;
-			}
-			$retweet_id{$res->{id}} = 1;
-			next;
-		}
-=cut
 		$res->{text} =~ s/@.*|RT.*//s;	#リプライとRT以後を消す
-		#$res->{text} =~ s/#.*? / /sg;	#ハッシュタグを消す
 
 		if($res->{text} !~ /$in/s){
 			next STEP;	#リプライ引用下に検索ワードが入ってきているのであれば
 		}
-
-		#$dbh->do("insert into users(user_name,point) values('$res->{from_user}',1);");	
 		$key_count{$res->{user}->{screen_name}}++;
 		$tweet_point{$res->{id}} = 1;
 		$tweet_text{$res->{id}} = $res->{text};
 		$tweet_user{$res->{id}} = $res->{user}->{screen_name};
-		#print Dumper($res)."<br><br>";
 		$in_number++;
 		
 		$search_tmp = $search_text.$res->{text}; 
@@ -170,7 +134,6 @@ sub func{
 		$text =~ s/$in/ /sg;	#あとで配列の評価をもっと簡単にできるかも
 
 		#$text = jcode($text)->tr('０-９ ａ-ｗ Ａ-Ｗ', '0-9a-wA-W');	#全角を半角に
-		#あとで トリル１個にまとめよー
 		$text =~ tr/０-９ａ-ｗＡ-Ｗ/0-9a-wA-W/;
 		my $mol = get("http://jlp.yahooapis.jp/MAService/V1/parse?appid=$yahoo_id&results=uniq&filter=9&sentence=$text"); #molは形態素
 		if(defined($mol)){
@@ -213,32 +176,9 @@ foreach my $key (sort { $row_relate{$b} <=> $row_relate{$a} } keys %row_relate){
 #userごとのpositive数計算
 foreach my $key (sort { $tweet_point{$b} <=> $tweet_point{$a} } keys %tweet_point){
 	last if($tweet_point{$key} == 0);	#閾値0.3
-	#print $tweet_point{$key};
-	#print $tweet_text{$key};
-	#print "<br><br>";
 	$user_count{$tweet_user{$key}}++;
 	$user_sum{$tweet_user{$key}} += $tweet_point{$key};
 }
-
-=pod
-foreach my $key(sort{ $user_count{$b} <=> $user_count{$a} } keys %user_count){
-	printf("%15s | sum->%6.3f | average -> %6.3f | count -> %3d | ",$key,$user_sum{$key},$user_sum{$key}/$user_count{$key},$user_count{$key});
-	if(exists($user_retweet{$key})){
-		printf("retweet -> %3d<br>",$user_retweet{$key});
-	}
-	else{
-		printf("retweet -> 0<br>");
-	}	
-}
-=cut
-
-
-=pod
-# ユーザ名の出力
-$sth = $dbh->prepare("select user_name,sum(point_2),sum(point),sum(pos_count) from users group by user_name order by sum(pos_count) desc");
-$sth->execute;
-=cut
-
 
 my $user_count = 0;
 my %user_rank = ();
@@ -255,49 +195,9 @@ foreach my $key (sort { $user_count{$b} <=> $user_count{$a} } keys %user_count){
 		next;
 	}
 	$user_rank{$key} = $positive * ($sum_point/$tweet_count);
-	#printf("%15s | count -> %3d | pos -> %3d | point -> %6.3f | retweet -> %4d | ave_point -> %6.3f | ave_pos -> %6.3f<br>",$key,$tweet_count,$positive,$sum_point,$retweet,$sum_point/$tweet_count,$positive/$tweet_count);
-	#printf("%15s | %2d | url -> %2d | positive -> %2d | count -> %2d | sum -> %6.3f | retweet -> %4d <br>",$key,$user_count{$key},$url,$positive,$tweet_count,$sum_point,$retweet);
 	$user_count++;
 	last if($user_count > 50);
 }                                                                        
-
-=pod
-print "recommend<br>";
-foreach my $key (sort { $user_rank{$b} <=> $user_rank{$a} } keys %user_rank){
-	printf("<a href='https://twitter.com/%s'>%s</a> | %6.3f<br>",$key,$key,$user_rank{$key});
-}
-
-print "---------------------------<br>";
-=cut
-
-
-=pod
-$user_count = 0;
-my %user_rank_2 = ();
-foreach my $key (sort { $user_count{$b} <=> $user_count{$a} } keys %user_count){
-	my $tweet_count; #リプライを除いたツイート数
-	my $url = 0;
-	my $retweet = 0;
-	my $positive = 0;
-	my $sum_point = 0;
-	my $retweet = 0;
-  	($tweet_count,$url,$positive,$tweet_count,$sum_point,$retweet) = &precision_2($key);
-	$user_rank_2{$key} = $positive * ($sum_point/$tweet_count);
-	printf("%15s | count -> %3d | pos -> %3d | point -> %6.3f | retweet -> %4d | ave_point -> %6.3f | ave_pos -> %6.3f<br>",$key,$tweet_count,$positive,$sum_point,$retweet,$sum_point/$tweet_count,$positive/$tweet_count);
-	#printf("%15s | %2d | url -> %2d | positive -> %2d | count -> %2d | sum -> %6.3f | retweet -> %4d <br>",$key,$user_count{$key},$url,$positive,$tweet_count,$sum_point,$retweet);
-	$user_count++;
-	last if($user_count > 50);
-}        
-
-print "recommend_2<br>";
-foreach my $key (sort { $user_rank_2{$b} <=> $user_rank_2{$a} } keys %user_rank_2){
-	printf("<a href='https://twitter.com/%s'>%s</a> | %6.3f<br>",$key,$key,$user_rank_2{$key});
-}
-
-=cut
-   
-
-
 
 sub related{
 	my $cosine;
@@ -320,7 +220,6 @@ sub related{
 		}
 
 		for my $res (@{$r->{statuses}}){
-			#print $res->{text}."<br>";
 			$max_id = $res->{id_str};
 			next if(exists($tmp_id_memo{$res->{id}}));	#最初の文字がRTだったら  (ここではRT完全無視という前提で 
 						#or 既出ツイートとばし
@@ -339,16 +238,9 @@ sub related{
 		
 			$res->{text} =~ s/@.*|RT.*//s;	#リプライとRT以後を消す
 			next if($res->{text} !~ /$word/s);	#リプライ引用下に検索ワードが入ってきているのであればそれはtotalにもtmp_countにも加算しない
-			
-			#$res->{text} =~ s/@.*? |://s;	#@ユーザ名を削除
 			push(@tmp_id,$res->{id});	#ツイートidを保存
 			$tweet_user{$res->{id}} = $res->{user}->{screen_name};
 			$tweet_text{$res->{id}} = $res->{text};
-		#	next if($res->{text} =~ /\ART/);	#最初がRTだったらここまで
-			#print "ユーザ名；　$res->{from_user}, ワード：$word<br>$res->{text}<br>----------------------------<br>";            #リプライじゃなかったら
-
-
-
 			if($res->{text} =~ /$in/s){
 				$tmp_count++;
 			}	
@@ -360,7 +252,6 @@ sub related{
 
 	if($total != 0){
 		my $cal_2 = $tmp_count/$total; #分母                     
-		#print "ワード：$word のカウント数は、$tmp_count \/ $total<br>";
 		if($cal_2 != 0){
 			my $cal_1 = $number/$in_number; #分子
 			my $cal = $cal_1/$cal_2;
@@ -374,11 +265,6 @@ sub related{
 			foreach my $id (@tmp_id){
 				$tweet_point{$id} += $cosine;
 			}
-=pod
-			foreach my $key (keys(%tmp_users)){
-				$dbh->do("insert into users(user_name,point_2) values('$key','$cosine*$tmp_users{$key}');");
-			}
-=cut
 		}
 	}
 
@@ -397,7 +283,6 @@ sub precision{
 	my $used_count = 0;
 	my $first = 1;
 	&Jcode::convert(\$user,'unicode');
-	#print $user;
 	my $user_timeline = $nt->user_timeline({screen_name=>$user,count=>50}); 
 	for my $res(@$user_timeline){
 		
@@ -407,10 +292,7 @@ sub precision{
 		}
 		$res->{text} =~ s/(#|＃).*?( |\r)//sg; #ハッシュタグ消し
 		$res->{text} =~ s/(#|＃).*$//s;
-		#print "after $res->{text}";
-		#print "<br>";
 		if($res->{text} =~ /\A@/){
-			#$count++;
 			$check = 1;
 			next;
 		}	#リプライだったら
@@ -421,23 +303,7 @@ sub precision{
 		$res->{text} =~ s/@.*|RT.*//s;	#リプライとRT以後を消す
 			
 		
-		$count++;
-=pod
-		if($res->{text} =~ /http/s){
-			$url_count++;
-		}
-=cut
-
-=pod
-		if(exists($tweet_point{$res->{id}})){
-			$point = $tweet_point{$res->{id}};
-			#あとで　条件式内に$point = できる？
-			$sum_point += $point;
-			$positive++;
-			next;
-		}
-=cut
-		
+		$count++;		
 		$point = 0;
 		
 		foreach my $key (keys(%relate)){
@@ -475,84 +341,6 @@ sub precision{
 		return (0,0,0,0,0);
 	}
 }
-
-
-sub precision_2{
-	my $user = $_[0];
-	my $count = 0; 	#全カウント
-	my $positive = 0;	#関連ツイートカウント
-	my $point;
-	my $url_count = 0;
-	my $sum_point = 0;
-	my $retweet = 0;
-	&Jcode::convert(\$user,'unicode');
-	my $user_timeline = $nt->user_timeline({id=>"\@$user",count=>50,since=>$t}); 
-	for my $res(@$user_timeline){
-		if($res->{text} =~ /\A@/){
-			#$count++;
-			next;
-		}	#リプライだったら
-
-		$res->{text} =~ s/@.*|RT.*//s;	#リプライとRT以後を消す
-			
-		
-		$count++;
-=pod
-		if($res->{text} =~ /http/s){
-			$url_count++;
-		}
-=cut
-		if(exists($tweet_point{$res->{id}})){
-			$point = $tweet_point{$res->{id}};
-			#あとで　条件式内に$point = できる？
-			$sum_point += $point;
-			$positive++;
-			next;
-		}
-
-		$point = 0;
-		foreach my $key (keys(%relate)){
-			next if($relate{$key} == 0);
-			if($res->{text} =~ /$key/s){
-				$point += $relate{$key};
-			}
-		}
-		
-		if($point > 0){
-			$positive++;
-		}
-		$sum_point += $point;
-		$retweet += $res->{retweet_count};
-
-	}
-
-	if($count != 0){
-		return ($count,$url_count,$positive,$count,$sum_point,$retweet);
-	}
-	else{
-		return (0,0,0,0,0);
-	}
-}
-
-=pod
-print "--------------------------ハッシュタグ---------------------------------------------------------------<br>";
-foreach my $key (sort { $hashtag{$b} cmp $hashtag{$a} } keys %hashtag){
-	print "$key:$hashtag{$key}<br>";
-}
-
-print $dic."<br>";
-foreach my $key (sort { $relate{$b} <=> $relate{$a} } keys %relate){
-	print "$key:$relate{$key}<br>";
-}
-
-foreach my $key (sort { $relate{$b} <=> $relate{$a} } keys %relate){
-	print "$key:$relate{$key}<br>";
-}
-print "こっからキーワードね-<br>";
-foreach my $key (sort { $row_relate{$b} <=> $row_relate{$a} } keys %row_relate){
-	print "$key:$row_relate{$key}<br>";
-}
-=cut
 
 delete($relate{$in});
 
